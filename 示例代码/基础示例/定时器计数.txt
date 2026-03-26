@@ -1,0 +1,134 @@
+/**
+ * Copyright (c) dt-sir & GitHub Copilot
+ *
+ * Description: Use a hardware timer to increment a counter every second and display it on an OLED screen.
+ *
+ * History: \n
+ * 2025-08-05, Created file for timer-based OLED counter. \n
+ */
+
+#include "cmsis_os2.h"
+#include "app_init.h"
+#include "osal_debug.h"
+#include "soc_osal.h"
+
+// --- Peripherals Headers ---
+#include "pinctrl.h"
+#include "i2c.h"
+#include "timer.h"
+#include "chip_core_irq.h" // For TIMER_1_IRQN
+
+// --- OLED Driver Headers (from sensor.c) ---
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
+
+// --- Task Configuration ---
+#define OLED_TIMER_TASK_STACK_SIZE  0x1000
+#define OLED_TIMER_TASK_PRIO        (osPriority_t)(17)
+
+// --- I2C & OLED Configuration (from sensor.c) ---
+#define I2C_BUS_ID                1
+#define I2C_SCL_PIN               15
+#define I2C_SDA_PIN               16
+#define I2C_BAUDRATE              400000
+
+// --- Timer Configuration (from timer_demo.c & README.md) ---
+#define TIMER_HW_INDEX            1      // 使用硬件定时器1 (Timer1)
+#define TIMER_IRQ_PRIO            1      // 中断优先级
+#define TIMER_INTERVAL_US         1000000 // 定时间隔: 1秒 = 1,000,000 微秒
+
+// --- Global Variables ---
+static timer_handle_t g_timer_handle = NULL; // 全局定时器句柄
+// 使用 volatile 关键字确保主循环和中断回调之间数据同步
+static volatile uint32_t g_second_counter = 0;
+
+/**
+ * @brief 定时器回调函数，每秒被调用一次
+ * @param data 传递给回调的参数 (未使用)
+ */
+static void timer_callback_update_counter(uintptr_t data)
+{
+    UNUSED(data);
+    // 核心逻辑：将全局计数器加一
+    g_second_counter++;
+
+    // 关键：再次启动定时器，以实现周期性调用
+    uapi_timer_start(g_timer_handle, TIMER_INTERVAL_US, timer_callback_update_counter, 0);
+}
+
+/**
+ * @brief 初始化I2C引脚 (来自sensor.c)
+ */
+static void app_i2c_init_pin(void)
+{
+    uapi_pin_set_mode(I2C_SCL_PIN, PIN_MODE_2);
+    uapi_pin_set_mode(I2C_SDA_PIN, PIN_MODE_2);
+    uapi_pin_set_pull(I2C_SCL_PIN, PIN_PULL_TYPE_UP);
+    uapi_pin_set_pull(I2C_SDA_PIN, PIN_PULL_TYPE_UP);
+}
+
+/**
+ * @brief 主任务：初始化外设，并在循环中刷新OLED显示
+ */
+static void *oled_display_task(const char *arg)
+{
+    UNUSED(arg);
+
+    // 1. ========== 初始化OLED (来自sensor.c) ==========
+    app_i2c_init_pin();
+    uapi_i2c_master_init(I2C_BUS_ID, I2C_BAUDRATE, 0); // Master address is 0
+    ssd1306_Init();
+    osal_msleep(100); // 等待OLED初始化完成
+    ssd1306_Fill(Black);
+    ssd1306_UpdateScreen();
+    osal_printk("OLED Initialized.\r\n");
+
+    // 2. ========== 初始化并启动硬件定时器 ==========
+    uapi_timer_init();
+    uapi_timer_adapter(TIMER_HW_INDEX, TIMER_1_IRQN, TIMER_IRQ_PRIO);
+    uapi_timer_create(TIMER_HW_INDEX, &g_timer_handle);
+    // 首次启动定时器，之后它将在回调函数中自我维持
+    uapi_timer_start(g_timer_handle, TIMER_INTERVAL_US, timer_callback_update_counter, 0);
+    osal_printk("Hardware timer started for 1-second interval.\r\n");
+
+    // 3. ========== 主循环：刷新OLED显示 ==========
+    while (1) {
+        char display_str[20];
+        // 将当前的计数值格式化为字符串
+        snprintf(display_str, sizeof(display_str), "Count: %u", g_second_counter);
+
+        // 在OLED上显示
+        ssd1306_Fill(Black);             // 清屏
+        ssd1306_SetCursor(10, 25);       // 设置显示位置 (居中一些)
+        ssd1306_DrawString(display_str, Font_11x18, White); // 使用大字体
+        ssd1306_UpdateScreen();          // 将缓冲区内容推送到屏幕
+
+        // 每100ms刷新一次屏幕，无需太快，以降低CPU占用
+        osal_msleep(100);
+    }
+
+    return NULL;
+}
+
+/**
+ * @brief 任务创建入口
+ */
+static void oled_timer_entry(void)
+{
+    osThreadAttr_t attr;
+
+    attr.name = "OledTimerTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = OLED_TIMER_TASK_STACK_SIZE;
+    attr.priority = OLED_TIMER_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)oled_display_task, NULL, &attr) == NULL) {
+        osal_printk("Error: Failed to create OledTimerTask.\r\n");
+    }
+}
+
+// 注册并运行入口函数
+app_run(oled_timer_entry);

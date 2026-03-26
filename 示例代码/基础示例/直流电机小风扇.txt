@@ -1,0 +1,114 @@
+/**
+ * Copyright (c) dt-sir & GitHub Copilot
+ *
+ * Description: DC Motor control sample using PWM and GPIO.
+ *              - PWMA (Speed): GPIO 0
+ *              - AIN1 (Direction): GPIO 1
+ *              - AIN2 (Direction): GPIO 2
+ *
+ * History: \n
+ * 2025-08-04, Created file for DC motor control. \n
+ */
+
+#include "cmsis_os2.h"
+#include "app_init.h"
+#include "pinctrl.h"
+#include "gpio.h"
+#include "pwm.h"
+#include "tcxo.h"
+#include "osal_debug.h"
+
+// --- 任务配置 ---
+#define MOTOR_TASK_STACK_SIZE      0x1000
+#define MOTOR_TASK_PRIO            (osPriority_t)(17)
+
+// --- 引脚定义 ---
+// 速度控制引脚 (PWM)
+#define MOTOR_PWM_GPIO             0
+#define MOTOR_PWM_PIN_MODE         1 // GPIO0 复用为PWM功能的模式号
+#define MOTOR_PWM_CHANNEL          0
+#define MOTOR_PWM_GROUP_ID         0
+
+// 方向控制引脚 (GPIO)
+#define MOTOR_AIN1_GPIO            1
+#define MOTOR_AIN2_GPIO            2
+
+// --- 电机参数 ---
+#define MOTOR_PWM_PERIOD           1000   // PWM总周期，可以理解为速度分辨率
+#define MOTOR_SPEED                700    // 设置电机速度值 (0 ~ 1000)，700代表70%的占空比
+
+static void *motor_control_task(const char *arg)
+{
+    UNUSED(arg);
+
+    // 1. ========== 初始化方向控制引脚 (只执行一次) ==========
+    uapi_gpio_init();
+    // 设置 AIN1 和 AIN2 为通用GPIO模式
+    uapi_pin_set_mode(MOTOR_AIN1_GPIO, PIN_MODE_0);
+    uapi_pin_set_mode(MOTOR_AIN2_GPIO, PIN_MODE_0);
+    // 设置 AIN1 和 AIN2 为输出方向
+    uapi_gpio_set_dir(MOTOR_AIN1_GPIO, GPIO_DIRECTION_OUTPUT);
+    uapi_gpio_set_dir(MOTOR_AIN2_GPIO, GPIO_DIRECTION_OUTPUT);
+
+    // 设置电机为正转 (AIN1=HIGH, AIN2=LOW)
+    uapi_gpio_set_val(MOTOR_AIN1_GPIO, GPIO_LEVEL_HIGH);
+    uapi_gpio_set_val(MOTOR_AIN2_GPIO, GPIO_LEVEL_LOW);
+    
+    osal_printk("Motor direction set: AIN1=HIGH, AIN2=LOW.\r\n");
+
+    // 2. ========== 循环输出PWM信号以控制速度 ==========
+    // 完全复用您成功的呼吸灯代码中的“完全重置”循环逻辑
+    while (1) {
+        // 初始化PWM
+        uapi_pwm_deinit();
+        uapi_pwm_init();
+
+        // 设置PWM引脚功能
+        uapi_pin_set_mode(MOTOR_PWM_GPIO, MOTOR_PWM_PIN_MODE);
+
+        // 配置固定的占空比来控制速度
+        pwm_config_t pwm_cfg = {
+            .low_time = MOTOR_PWM_PERIOD - MOTOR_SPEED,
+            .high_time = MOTOR_SPEED,
+            .cycles = 0,
+            .repeat = true
+        };
+        uapi_pwm_open(MOTOR_PWM_CHANNEL, &pwm_cfg);
+
+        // 使用“组”功能来启动PWM (根据您的成功经验，这是必须的)
+        uint8_t channel_id = MOTOR_PWM_CHANNEL;
+        uapi_pwm_set_group(MOTOR_PWM_GROUP_ID, &channel_id, 1);
+        uapi_pwm_start_group(MOTOR_PWM_GROUP_ID);
+
+        // 延时1秒，让PWM波形持续输出。这个延时可以任意设置。
+        uapi_tcxo_delay_ms(1000);
+
+        // 在循环末尾关闭并反初始化，为下一次循环做准备
+        uapi_pwm_close(MOTOR_PWM_GROUP_ID);
+        uapi_pwm_deinit();
+    }
+    
+    return NULL;
+}
+
+// 任务创建入口
+static void motor_control_entry(void)
+{
+    osThreadAttr_t attr;
+    attr.name = "MotorControlTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = MOTOR_TASK_STACK_SIZE;
+    attr.priority = MOTOR_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)motor_control_task, NULL, &attr) == NULL) {
+        osal_printk("Error: Failed to create MotorControlTask.\r\n");
+    } else {
+        osal_printk("MotorControlTask created successfully.\r\n");
+    }
+}
+
+// 应用启动函数
+app_run(motor_control_entry);

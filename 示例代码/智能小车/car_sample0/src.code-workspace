@@ -1,0 +1,52 @@
+{
+  "folders": [
+	{
+		"path": "../../../.."
+	},
+	{
+		"path": "../../../../../../3061M/open_mcu-master/src"
+	}
+],
+  "settings": {
+    "files.associations": {
+      "common_def.h": "c",
+      "hal_pwm.h": "c",
+      "pinctrl.h": "c",
+      "stdio.h": "c",
+      "soc_osal.h": "c",
+      "stddef.h": "c",
+      "pinctrl_porting.h": "c",
+      "platform_core_rom.h": "c",
+      "osal_bitmap.h": "c",
+      "osal_cache.h": "c",
+      "common.h": "c",
+      "math.h": "c",
+      "osal_debug.h": "c",
+      "kconfig": "c",
+      "cstddef": "c",
+      "limits": "c",
+      "app_init.h": "c",
+      "aux_bmp280.h": "c",
+      "rope": "c",
+      "bmi270.h": "c",
+      "array": "c",
+      "string": "c",
+      "string_view": "c",
+      "ranges": "c",
+      "span": "c",
+      "condition_variable": "c",
+      "mutex": "c",
+      "shared_mutex": "c",
+      "syncstream": "c",
+      "fstream": "c",
+      "iosfwd": "c",
+      "istream": "c",
+      "sstream": "c",
+      "stop_token": "c",
+      "streambuf": "c",
+      "cstdint": "c",
+      "uart.h": "c",
+      "compare": "c"
+    }
+  }
+}

@@ -1,0 +1,101 @@
+/**
+ * Copyright (c) dt-sir & GitHub Copilot
+ *
+ * Description: PWM Breathing LED Sample. 
+ *              This version is corrected based on a working example provided by the user.
+ *
+ * History: \n
+ * 2025-08-03, Corrected file based on user's working code. \n
+ */
+
+#include "cmsis_os2.h"
+#include "app_init.h"
+#include "pinctrl.h"
+#include "tcxo.h"     // 【修正1】: 包含 tcxo.h 以使用 uapi_tcxo_delay_ms
+#include "pwm.h"
+#include "osal_debug.h"
+
+// --- 任务和引脚配置 (采纳用户代码的定义) ---
+#define PWM_TASK_STACK_SIZE        0x1000
+#define PWM_TASK_PRIO              (osPriority_t)(17)
+#define PWM_GPIO                   1
+#define PWM_PIN_MODE               1
+#define PWM_CHANNEL                1
+#define PWM_GROUP_ID               0      // 【修正2】: 明确定义并使用组ID
+
+// --- 呼吸效果参数 (采纳用户代码的定义) ---
+#define BREATH_MAX_BRIGHTNESS      300
+#define BREATH_MIN_BRIGHTNESS      50
+#define BREATH_STEP                10
+#define BREATH_DELAY_MS            50
+
+// 【修正3】: 任务函数名与用户代码保持一致
+static void *light_task(const char *arg)
+{
+    UNUSED(arg);
+
+    // 初始化亮度、步长等参数 (采纳用户代码的逻辑)
+    int brightness = BREATH_MIN_BRIGHTNESS;
+    int step = BREATH_STEP;
+    
+    // 配置引脚功能
+    uapi_pin_set_mode(PWM_GPIO, PWM_PIN_MODE);
+
+    osal_printk("Breathing LED task started (Corrected Version).\r\n");
+
+    while (1) {
+        // 【修正4】: 采纳用户代码的“完全重置”循环结构
+        uapi_pwm_deinit();
+        uapi_pwm_init();
+
+        // 配置PWM占空比 (采纳用户代码的计算方式)
+        pwm_config_t pwm_cfg = {
+            .low_time = brightness,
+            .high_time = BREATH_MAX_BRIGHTNESS - brightness,
+            .cycles = 0,
+            .repeat = true
+        };
+        uapi_pwm_open(PWM_CHANNEL, &pwm_cfg);
+
+        // 【修正5 - 核心】: 必须使用“组”功能来启动PWM
+        uint8_t channel_id = PWM_CHANNEL;
+        uapi_pwm_set_group(PWM_GROUP_ID, &channel_id, 1);
+        uapi_pwm_start_group(PWM_GROUP_ID);
+
+        // 更新下一次循环的亮度值
+        brightness += step;
+        if (brightness >= BREATH_MAX_BRIGHTNESS || brightness <= BREATH_MIN_BRIGHTNESS) {
+            step = -step;
+        }
+
+        // 【修正6】: 使用 uapi_tcxo_delay_ms, 因为它在您的代码中被证明是可行的
+        uapi_tcxo_delay_ms((uint32_t)BREATH_DELAY_MS);
+
+        // 【修正7】: 使用组ID来关闭，并再次反初始化
+        uapi_pwm_close(PWM_GROUP_ID);
+        uapi_pwm_deinit();
+    }
+    
+    return NULL;
+}
+
+// 启动任务的入口函数
+static void pwm_breathing_light_entry(void)
+{
+    osThreadAttr_t attr;
+    attr.name = "PWM_Breathing_light_Task";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = PWM_TASK_STACK_SIZE;
+    attr.priority = PWM_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)light_task, NULL, &attr) == NULL) {
+        // 使用 osal_printk 替代 printf，以保证在所有环境下都能输出
+        osal_printk("Error: Failed to create PWM Breathing Light Task.\r\n");
+    }
+}
+
+// 应用启动函数
+app_run(pwm_breathing_light_entry);

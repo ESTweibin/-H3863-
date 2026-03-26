@@ -1,0 +1,18 @@
+/* 预留的主题文件，可以在这里定义更多全局颜色变量或覆盖 Element Plus 变量 */
+:root {
+  --primary-color: #64FFDA; /* 亮青色 */
+  --background-color: #0A192F; /* 深蓝背景 */
+  --card-background-color: #172A45; /* 卡片背景 */
+  --text-color: #E0E0E0; /* 浅色文字 */
+  --border-color: #173A5E; /* 边框/分隔线颜色 */
+}
+
+/* 可以在这里覆盖 Element Plus 的 CSS 变量，实现更深度的定制 */
+/* 例如：
+.el-button--primary {
+  --el-button-bg-color: var(--primary-color);
+  --el-button-border-color: var(--primary-color);
+  --el-button-hover-bg-color: color-mix(in srgb, var(--primary-color) 90%, black);
+}
+*/
+

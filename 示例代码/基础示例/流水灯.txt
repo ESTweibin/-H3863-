@@ -1,0 +1,75 @@
+#include "pinctrl.h"
+#include "soc_osal.h"
+#include "gpio.h"
+#include "osal_debug.h"
+#include "cmsis_os2.h"
+#include "app_init.h"
+
+#define FLOWING_LED_TASK_STACK_SIZE    0x1000
+#define FLOWING_LED_TASK_PRIO          (osPriority_t)(17)
+#define FLOWING_LED_START_PIN          0  // 流水灯起始GPIO
+#define FLOWING_LED_END_PIN            14 // 流水灯结束GPIO
+#define FLOWING_LED_DURATION_MS        100 // 流水灯间隔时间
+
+static void *flowing_led_task(const char *arg)
+{
+    unused(arg);
+
+    // 1. 初始化所有需要用到的GPIO引脚
+    // 这个 for 循环只负责初始化，执行完一次就结束。
+    for (int pin = FLOWING_LED_START_PIN; pin <= FLOWING_LED_END_PIN; pin++) {
+        // 设置为GPIO功能
+        uapi_pin_set_mode(pin, PIN_MODE_0);
+        // 设置为输出方向
+        uapi_gpio_set_dir(pin, GPIO_DIRECTION_OUTPUT);
+        // 初始状态全部熄灭 (低电平)
+        uapi_gpio_set_val(pin, GPIO_LEVEL_LOW);
+    }
+
+    // 【关键点1】: 初始化一个变量，用于追踪当前应该点亮的灯
+    int current_pin = FLOWING_LED_START_PIN;
+
+    // 2. 流水灯无限循环
+    // 这个 while(1) 循环必须在 for 循环的外面！
+    while (1) {
+        // 点亮当前LED
+        uapi_gpio_set_val(current_pin, GPIO_LEVEL_HIGH);
+
+        // 延时
+        osal_msleep(FLOWING_LED_DURATION_MS);
+
+        // 【关键点2】: 熄灭刚刚点亮的同一个LED
+        uapi_gpio_set_val(current_pin, GPIO_LEVEL_LOW);
+
+        // 移动到下一个LED
+        current_pin++;
+        if (current_pin > FLOWING_LED_END_PIN) {
+            current_pin = FLOWING_LED_START_PIN; // 循环回第一个
+        }
+    }
+
+    return NULL; // 实际上，由于上面的while(1)，代码永远不会执行到这里
+}
+
+static void flowing_led_entry(void)
+{
+    osThreadAttr_t attr;
+
+    attr.name = "FlowingLedTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = FLOWING_LED_TASK_STACK_SIZE;
+    attr.priority = FLOWING_LED_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)flowing_led_task, NULL, &attr) == NULL) {
+        /* Create task fail. */
+        osal_printk("Failed to create FlowingLedTask.\r\n");
+    } else {
+        osal_printk("FlowingLedTask created successfully.\r\n");
+    }
+}
+
+/* 注册并运行流水灯入口函数 */
+app_run(flowing_led_entry);

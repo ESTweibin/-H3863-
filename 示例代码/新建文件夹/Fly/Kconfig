@@ -1,0 +1,13 @@
+config SAMPLE_SUPPORT_DRIVER
+    bool
+    prompt "Support DRIVER Sample."
+    default n
+    depends on ENABLE_FLY_SAMPLE
+    help
+        This option means support DRIVER Sample.
+
+if SAMPLE_SUPPORT_DRIVER
+menu "DRIVER Sample Configuration"
+    osource "application/samples/Fly/driver/Kconfig"
+endmenu
+endif

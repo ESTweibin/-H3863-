@@ -1,0 +1,137 @@
+/**
+ * Copyright (c) HiSilicon (Shanghai) Technologies Co., Ltd. 2023-2023. All rights reserved.
+ *
+ * Description: PWM Sample Source. \n
+ *
+ * History: \n
+ * 2023-06-27, Create file. \n
+ */
+#include "pinctrl.h"
+#include "pwm.h"
+#include "gpio.h"
+#include "osal_debug.h"
+#include "osal_task.h"
+#include "cmsis_os2.h"
+#include "app_init.h"
+#include "tcxo.h"
+/*
+ * Copyright (c) 2024 HiSilicon Technologies CO., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* 由于舵机的频率为50HZ，PWM不支持这么小的频率，所以采用GPIO模拟PWM波形 */
+
+#include "pinctrl.h"
+#include "common_def.h"
+#include "soc_osal.h"
+#include "gpio.h"
+#include "hal_gpio.h"
+#include "systick.h"
+#include "watchdog.h"
+#include "app_init.h"
+
+#define COUNT 10 // 通过计算舵机转到对应角度需要发送10个左右的波形
+#define PWM_TASK_STACK_SIZE 0x1000
+#define PWM_TASK_PRIO 17
+#define PWM_PIN 2
+#define FREQ_TIME 20000
+#define BUTTON_PIN 3
+
+#define Max_Palus   2500
+#define Min_Palus   500
+
+static volatile bool g_button_pressed_flag = false; // 新增：按键按下标志位
+int ANGLE=0;
+int PALSE=0;
+static void gpio_callback_func(pin_t pin, uintptr_t param)
+{
+    UNUSED(pin);
+    UNUSED(param);
+    g_button_pressed_flag=true;
+    osal_printk("Button pressed.\r\n");
+}
+
+uint32_t palus_to_angle(int angle)
+{
+    return Min_Palus+((Max_Palus-Min_Palus)*angle)/180;
+}
+
+void SetAngle(unsigned int duty)
+{
+    unsigned int time = FREQ_TIME;
+
+    uapi_gpio_set_val(PWM_PIN, GPIO_LEVEL_HIGH);
+    uapi_systick_delay_us(duty);
+    uapi_gpio_set_val(PWM_PIN, GPIO_LEVEL_LOW);
+    uapi_systick_delay_us(time - duty);
+}
+
+void MG996RInit(void)
+{
+    uapi_pin_set_mode(PWM_PIN, HAL_PIO_FUNC_GPIO);
+    uapi_gpio_set_dir(PWM_PIN, GPIO_DIRECTION_OUTPUT);
+    uapi_gpio_set_val(PWM_PIN, GPIO_LEVEL_LOW);
+}
+void ButtonInit(void)
+{
+    uapi_pin_set_mode(BUTTON_PIN, HAL_PIO_FUNC_GPIO);
+    uapi_pin_set_pull(BUTTON_PIN, PIN_PULL_TYPE_UP);
+    uapi_gpio_set_dir(BUTTON_PIN, GPIO_DIRECTION_INPUT);    
+    uapi_gpio_register_isr_func(BUTTON_PIN, GPIO_INTERRUPT_DEDGE, gpio_callback_func);
+    
+
+}
+
+void Servo_task(void)
+{
+    unsigned int time = 200;
+    MG996RInit();
+    ButtonInit();
+    while (1) {
+        PALSE=palus_to_angle(ANGLE);
+       if(g_button_pressed_flag){
+            g_button_pressed_flag=false;
+            ANGLE+=10;
+            osal_printk("ANGLE=%d.\r\n",ANGLE);
+            if(ANGLE>=180){
+                ANGLE=0;
+            }
+        }
+        uapi_watchdog_kick();
+        for (int i = 0; i < COUNT; i++) {
+        SetAngle(PALSE);
+        }
+        uapi_systick_delay_ms(time);
+    }
+}
+
+
+static void pwm_entry(void)
+{
+    osThreadAttr_t attr;
+
+    attr.name = "PWMTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = PWM_TASK_STACK_SIZE;
+    attr.priority = PWM_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)Servo_task, NULL, &attr) == NULL) {
+        /* Create task fail. */
+    }
+}
+
+/* Run the pwm_entry. */
+app_run(pwm_entry);

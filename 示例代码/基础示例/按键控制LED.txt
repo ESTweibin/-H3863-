@@ -1,0 +1,92 @@
+记得在按钮和引脚中间接一个上拉电阻
+/**
+ * Copyright (c) dt-sir & GitHub Copilot
+ *
+ * Description: GPIO input and output sample.
+ *              Press the button on KEY_GPIO to turn on the LED on LED_GPIO.
+ *
+ * History: \n
+ * 2025-08-04, Created file for GPIO button control LED. \n
+ */
+
+#include "cmsis_os2.h"
+#include "app_init.h"
+#include "pinctrl.h"
+#include "gpio.h"
+#include "osal_debug.h"
+#include "soc_osal.h"
+
+// --- 任务和引脚配置 ---
+#define GPIO_TASK_STACK_SIZE  0x1000
+#define GPIO_TASK_PRIO        (osPriority_t)(25) // 使用一个合适的优先级
+#define LED_GPIO              0                  // LED 连接到 GPIO 0
+#define KEY_GPIO              1                  // 按键连接到 GPIO 1
+#define DEBOUNCE_DELAY_MS     20                 // 按键消抖和循环延时
+
+/*
+ * 任务函数：循环检测按键状态并控制LED
+ */
+static void *gpio_key_led_task(const char *arg)
+{
+    UNUSED(arg);
+    gpio_level_t key_status;
+
+    // 1. 初始化GPIO模块
+    uapi_gpio_init();
+
+    // 2. 配置引脚功能为通用GPIO (PIN_MODE_0)
+    uapi_pin_set_mode(LED_GPIO, PIN_MODE_0);
+    uapi_pin_set_mode(KEY_GPIO, PIN_MODE_0);
+
+    // 3. 设置引脚方向
+    uapi_gpio_set_dir(LED_GPIO, GPIO_DIRECTION_OUTPUT); // LED引脚为输出
+    uapi_gpio_set_dir(KEY_GPIO, GPIO_DIRECTION_INPUT);  // 按键引脚为输入
+
+    // 4. 初始状态下熄灭LED
+    uapi_gpio_set_val(LED_GPIO, GPIO_LEVEL_LOW);
+
+    osal_printk("GPIO Key LED task started. Press button on GPIO%d to light up LED on GPIO%d.\r\n", KEY_GPIO, LED_GPIO);
+
+    // 5. 进入主循环
+    while (1) {
+        // 读取按键引脚的电平状态
+        key_status = uapi_gpio_get_val(KEY_GPIO);
+
+        // 按键按下时，输入为低电平 (GPIO_LEVEL_LOW)
+        if (key_status == GPIO_LEVEL_LOW) {
+            // 点亮LED
+            uapi_gpio_set_val(LED_GPIO, GPIO_LEVEL_HIGH);
+        } else { // 按键松开时，输入为高电平 (GPIO_LEVEL_HIGH)
+            // 熄灭LED
+            uapi_gpio_set_val(LED_GPIO, GPIO_LEVEL_LOW);
+        }
+
+        // 短暂休眠，防止CPU占用过高，同时起到消抖作用
+        osal_msleep(DEBOUNCE_DELAY_MS);
+    }
+
+    return NULL;
+}
+
+/*
+ * 任务创建入口
+ */
+static void gpio_key_led_entry(void)
+{
+    osThreadAttr_t attr;
+
+    attr.name = "GpioKeyLedTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = GPIO_TASK_STACK_SIZE;
+    attr.priority = GPIO_TASK_PRIO;
+
+    if (osThreadNew((osThreadFunc_t)gpio_key_led_task, NULL, &attr) == NULL) {
+        osal_printk("Error: Failed to create GpioKeyLedTask.\r\n");
+    }
+}
+
+// 注册并运行入口函数
+app_run(gpio_key_led_entry);

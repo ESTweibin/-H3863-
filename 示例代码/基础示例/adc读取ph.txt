@@ -1,0 +1,115 @@
+#include "pinctrl.h"
+#include "soc_osal.h"
+#include "i2c.h"
+#include "osal_debug.h"
+#include "cmsis_os.h"
+#include "app_init.h"
+#include "adc_porting.h"
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
+#include "adc.h"
+
+#define I2C_MASTER_ADDR         0x0
+#define I2C_SET_BAUDRATE        400000
+#define I2C_MASTER_PIN_MODE     2
+
+#define I2C_TASK_STACK_SIZE     0x1000
+#define I2C_TASK_DURATION_MS    1000
+#define I2C_TASK_PRIO           (osPriority_t)(17)
+
+#define PH_ADC_CHANNEL          ADC_CHANNEL_5
+#define I2C_BUS_ID              1
+#define I2C_SCL_PIN             15
+#define I2C_SDA_PIN             16
+#define PH_READ_TIMES           10
+
+void PH_Init(void)
+{
+    uapi_adc_init(ADC_CLOCK_500KHZ);
+    uapi_adc_power_en(AFE_GADC_MODE,true);
+    uapi_adc_open_channel(PH_ADC_CHANNEL);
+}
+
+float PH_GetData(void)
+{
+    float tempData = 0;
+    uint16_t adc_value = 0;
+
+    for(int i=0;i<10;i++)
+    {
+        adc_port_read(PH_ADC_CHANNEL,&adc_value);
+        tempData += adc_value;
+        osal_msleep(100);
+    }
+
+    tempData /= PH_READ_TIMES;
+    
+    float PH_DAT = (tempData / 4096.0) * 5;
+    PH_DAT = -5.8887 * PH_DAT + 21.677;
+
+    if(PH_DAT > 14.0){
+        PH_DAT = 14.0;
+    }else if(PH_DAT < 0){
+        PH_DAT = 0.0;
+    }
+
+    return PH_DAT;
+}
+
+void i2c_pin_init(void)
+{
+    uapi_pin_set_mode(I2C_SCL_PIN,PIN_MODE_2);
+    uapi_pin_set_mode(I2C_SDA_PIN,PIN_MODE_2);
+    uapi_pin_set_pull(I2C_SCL_PIN,PIN_PULL_TYPE_UP);
+    uapi_pin_set_pull(I2C_SDA_PIN,PIN_PULL_TYPE_UP);
+}
+
+void *i2c_show_ph(const char *arg)
+{
+    UNUSED(arg);
+
+    i2c_pin_init();
+    uapi_i2c_master_init(I2C_BUS_ID,I2C_SET_BAUDRATE,I2C_MASTER_ADDR);
+    PH_Init();
+    ssd1306_Init();
+    ssd1306_Fill(Black);
+
+    while(1)
+    {
+        float ph_value = PH_GetData();
+        ssd1306_Fill(Black);
+        ssd1306_SetCursor(0,0);
+        ssd1306_DrawString("PH Sensor Data:", Font_7x10, White);
+
+        char ph_str[32];
+        snprintf(ph_str,sizeof(ph_str),"PH:%.2f",ph_value);
+        ssd1306_SetCursor(0,20);
+        ssd1306_DrawString(ph_str,Font_7x10,White);
+
+        ssd1306_UpdateScreen();
+
+        osal_msleep(I2C_TASK_DURATION_MS);
+    }
+
+    return NULL;
+}
+
+
+void i2c_master_entry(void)
+{
+    osThreadAttr_t attr;
+
+    attr.name = "I2CMasterTask";
+    attr.attr_bits = 0U;
+    attr.cb_mem = NULL;
+    attr.cb_size = 0U;
+    attr.stack_mem = NULL;
+    attr.stack_size = I2C_TASK_STACK_SIZE;
+    attr.priority = I2C_TASK_PRIO;
+
+    if(osThreadNew((osThreadFunc_t)i2c_show_ph,NULL,&attr) == NULL){
+        osal_printk("Failed to create I2C master task.\n");
+    }
+}
+
+app_run(i2c_master_entry);
